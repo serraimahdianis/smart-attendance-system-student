@@ -54,39 +54,58 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       _error = null;
     });
 
-    try {
-      // Direct HTTP call - bypass ApiService to ensure it works
-      final response = await http.post(
-        Uri.parse('${AppConstants.baseUrl}${AppConstants.loginEndpoint}'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'studentId': _studentIdCtrl.text.trim(),
-          'password': _passwordCtrl.text,
-        }),
-      );
+      try {
+        // Direct HTTP call - bypass ApiService to ensure it works
+        final url = '${AppConstants.baseUrl}${AppConstants.loginEndpoint}';
+        print('=== LOGIN DEBUG ===');
+        print('URL: $url');
+        print('Student ID: ${_studentIdCtrl.text.trim()}');
+        print('Password: ${_passwordCtrl.text}');
 
-      final data = jsonDecode(response.body);
+        final response = await http.post(
+          Uri.parse(url),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'studentId': _studentIdCtrl.text.trim(),
+            'password': _passwordCtrl.text,
+          }),
+        );
 
-      // Check for access_token (NestJS returns access_token)
-      final token = data['access_token'] ?? data['token'];
-      if (response.statusCode == 200 && token != null) {
-        // Save token to storage for future API calls
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(AppConstants.tokenKey, token);
+        print('Status Code: ${response.statusCode}');
+        print('Response Body: ${response.body}');
 
-        // Navigate to main screen
-        if (mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const MainNavScreen()),
-            (route) => false,
-          );
+        final data = jsonDecode(response.body);
+        print('Decoded Data: $data');
+
+        // Check for access_token (NestJS returns access_token)
+        final token = data['access_token'] ?? data['token'];
+        print('Token: $token');
+
+        if (response.statusCode == 200 && token != null) {
+          // Save token to storage for future API calls
+          print('Saving token to SharedPreferences...');
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(AppConstants.tokenKey, token);
+          print('Token saved: ${prefs.getString(AppConstants.tokenKey)}');
+
+          // Navigate to main screen
+          if (mounted) {
+            print('Navigating to MainNavScreen...');
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const MainNavScreen()),
+              (route) => false,
+            );
+            print('Navigation called!');
+          }
+        } else {
+          print('Login failed - Status: ${response.statusCode}, Message: ${data['message']}');
+          setState(() {
+            _error = data['message'] ?? 'Login failed (Status: ${response.statusCode})';
+          });
         }
-      } else {
-        setState(() {
-          _error = data['message'] ?? 'Login failed';
-        });
-      }
     } catch (e) {
+      print('=== EXCEPTION: $e ===');
+      print('Exception type: ${e.runtimeType}');
       setState(() {
         _error = 'Connection error: ${e.toString()}';
       });
