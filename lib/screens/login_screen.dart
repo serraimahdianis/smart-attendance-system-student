@@ -97,12 +97,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
             );
             print('Navigation called!');
           }
-        } else {
-          print('Login failed - Status: ${response.statusCode}, Message: ${data['message']}');
-          setState(() {
-            _error = data['message'] ?? 'Login failed (Status: ${response.statusCode})';
-          });
-        }
+      } else {
+        print('Login failed - Status: ${response.statusCode}, Message: ${data['message']}');
+        setState(() {
+          _error = 'Login failed\nStatus: ${response.statusCode}\nResponse: ${response.body.substring(0, response.body.length > 100 ? 100 : response.body.length)}';
+        });
+      }
     } catch (e) {
       print('=== EXCEPTION: $e ===');
       print('Exception type: ${e.runtimeType}');
