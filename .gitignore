@@ -98,5 +98,4 @@ pubspec.yaml
 AGENTS.md
 analysis_options.yaml
 android/
-lib/
 test/
