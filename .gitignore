@@ -80,22 +80,8 @@ $、退
 *.swp
 *.swo
 *~
-
-# NestJS
-node_modules/
-npm-debug.log
-yarn-error.log
-yarn-debug.log
-dist/
-*.tsbuildinfo
-.nest-cli.json
+*.iml
 
 # Flutter generated
 .flutter-plugins-dependencies
 .metadata
-pubspec.lock
-pubspec.yaml
-AGENTS.md
-analysis_options.yaml
-android/
-test/
