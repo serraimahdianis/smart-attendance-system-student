@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
 import '../utils/constants.dart';
 import 'main_nav_screen.dart';
 
@@ -17,8 +16,6 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   final _studentIdCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _obscurePassword = true;
-  bool _isLoading = false;
-  String? _error;
   late AnimationController _animCtrl;
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
@@ -43,65 +40,35 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
   Future<void> _login() async {
     if (_studentIdCtrl.text.isEmpty || _passwordCtrl.text.isEmpty) {
-      setState(() {
-        _error = 'Please fill all fields';
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill all fields')),
+      );
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    final authProvider = context.read<AuthProvider>();
+    final success = await authProvider.login(
+      _studentIdCtrl.text.trim(),
+      _passwordCtrl.text,
+    );
 
-    try {
-      final url = '${AppConstants.baseUrl}${AppConstants.loginEndpoint}';
-
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'studentId': _studentIdCtrl.text.trim(),
-          'password': _passwordCtrl.text,
-        }),
-      );
-
-      final data = jsonDecode(response.body);
-
-      // Accept 2xx status codes (200, 201, etc.)
-      final token = data['access_token'] ?? data['token'];
-      if (response.statusCode >= 200 && response.statusCode < 300 && token != null) {
-        // Save token to storage for future API calls
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(AppConstants.tokenKey, token);
-
-        // Navigate to main screen
-        if (mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const MainNavScreen()),
-            (route) => false,
-          );
-        }
-      } else {
-        setState(() {
-          _error = data['message'] ?? 'Login failed (Status: ${response.statusCode})';
-        });
+    if (success) {
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const MainNavScreen()),
+          (route) => false,
+        );
       }
-    } catch (e) {
-      setState(() {
-        _error = 'Connection error: ${e.toString()}';
-      });
     }
-
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-      });
-    }
+    // Error is handled by the consumer listening to authProvider.error
   }
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = context.watch<AuthProvider>();
+    final isLoading = authProvider.isLoading;
+    final error = authProvider.error;
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -170,108 +137,110 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   ),
                   child: FadeTransition(
                     opacity: _fadeAnim,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Welcome back!',
-                          style: GoogleFonts.poppins(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          'Sign in to your account',
-                          style: GoogleFonts.poppins(
-                            color: AppColors.textSecondary,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 28),
-                        if (_error != null)
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            margin: const EdgeInsets.only(bottom: 16),
-                            decoration: BoxDecoration(
-                              color: AppColors.error.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.error),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Welcome back!',
+                            style: GoogleFonts.poppins(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textPrimary,
                             ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.error_outline, color: AppColors.error, size: 20),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _error!,
-                                    style: GoogleFonts.poppins(
-                                      color: AppColors.error,
-                                      fontSize: 13,
+                          ),
+                          Text(
+                            'Sign in to your account',
+                            style: GoogleFonts.poppins(
+                              color: AppColors.textSecondary,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 28),
+                          if (error != null)
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              margin: const EdgeInsets.only(bottom: 16),
+                              decoration: BoxDecoration(
+                                color: AppColors.error.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppColors.error),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.error_outline, color: AppColors.error, size: 20),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      error,
+                                      style: GoogleFonts.poppins(
+                                        color: AppColors.error,
+                                        fontSize: 13,
+                                      ),
                                     ),
                                   ),
+                                ],
+                              ),
+                            ),
+                          TextField(
+                            controller: _studentIdCtrl,
+                            decoration: InputDecoration(
+                              labelText: 'Student ID',
+                              hintText: 'e.g. ST1001',
+                              prefixIcon: const Icon(Icons.badge_outlined, color: AppColors.primary),
+                            ),
+                            textInputAction: TextInputAction.next,
+                          ),
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: _passwordCtrl,
+                            obscureText: _obscurePassword,
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              prefixIcon: const Icon(Icons.lock_outline, color: AppColors.primary),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                                  color: AppColors.textSecondary,
                                 ),
-                              ],
-                            ),
-                          ),
-                        TextField(
-                          controller: _studentIdCtrl,
-                          decoration: InputDecoration(
-                            labelText: 'Student ID',
-                            hintText: 'e.g. ST1001',
-                            prefixIcon: const Icon(Icons.badge_outlined, color: AppColors.primary),
-                          ),
-                          textInputAction: TextInputAction.next,
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _passwordCtrl,
-                          obscureText: _obscurePassword,
-                          decoration: InputDecoration(
-                            labelText: 'Password',
-                            prefixIcon: const Icon(Icons.lock_outline, color: AppColors.primary),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                                color: AppColors.textSecondary,
+                                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                               ),
-                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                             ),
+                            onSubmitted: (_) => _login(),
                           ),
-                          onSubmitted: (_) => _login(),
-                        ),
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: () {},
-                            child: Text(
-                              'Forgot access? Contact admin',
-                              style: GoogleFonts.poppins(
-                                color: AppColors.primary,
-                                fontSize: 13,
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: () {},
+                              child: Text(
+                                'Forgot access? Contact admin',
+                                style: GoogleFonts.poppins(
+                                  color: AppColors.primary,
+                                  fontSize: 13,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 52,
-                          child: ElevatedButton(
-                            onPressed: _isLoading ? null : _login,
-                            child: _isLoading
-                                ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                                : Text(
-                                    'Login',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 52,
+                            child: ElevatedButton(
+                              onPressed: isLoading ? null : _login,
+                              child: isLoading
+                                  ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                                  : Text(
+                                      'Login',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
-                                  ),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),

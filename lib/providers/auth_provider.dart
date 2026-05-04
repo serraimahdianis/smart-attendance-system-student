@@ -50,25 +50,19 @@ class AuthProvider extends ChangeNotifier {
       if (result['success']) {
         _student = Student.fromJson(result['student']);
         _isLoggedIn = true;
-        // Cache student data
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(AppConstants.studentKey, jsonEncode(_student!.toJson()));
-      } else {
-        _error = result['message'];
       }
     } catch (e) {
-      _error = 'Connection error. Check your network.';
+      _error = e.toString().replaceFirst('Exception: ', '');
+      _isLoggedIn = false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-
-    _isLoading = false;
-    notifyListeners();
     return _isLoggedIn;
   }
 
   Future<void> logout() async {
     await _api.logout();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(AppConstants.studentKey);
     _student = null;
     _isLoggedIn = false;
     notifyListeners();

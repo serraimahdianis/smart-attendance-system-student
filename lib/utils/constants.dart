@@ -95,7 +95,7 @@ class AppTheme {
 }
 
 class AppConstants {
-  // Backend URL - NestJS without /api prefix
+  // Backend URL - NestJS at root
   static const String baseUrl = 'http://localhost:3000';
 
   // Verified Endpoints

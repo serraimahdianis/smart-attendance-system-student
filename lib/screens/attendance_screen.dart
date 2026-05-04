@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import '../models/models.dart';
-import '../services/api_service.dart';
+import '../providers/attendance_provider.dart';
 import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
 
@@ -14,28 +13,21 @@ class AttendanceScreen extends StatefulWidget {
 }
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
-  List<Attendance> _history = [];
-  bool _loadingHistory = false;
-  String? _selectedStatus;
-
   @override
   void initState() {
     super.initState();
-    _loadHistory();
-  }
-
-  Future<void> _loadHistory() async {
-    setState(() => _loadingHistory = true);
-    try {
-      _history = await ApiService().getMyAttendance(
-        status: _selectedStatus,
-      );
-    } catch (_) {}
-    setState(() => _loadingHistory = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<AttendanceProvider>().loadHistory();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final attendanceProvider = context.watch<AttendanceProvider>();
+    final history = attendanceProvider.history;
+    final isLoading = attendanceProvider.isLoading;
+    final selectedStatus = attendanceProvider.selectedStatus;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Attendance'),
@@ -51,7 +43,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               children: [
                 Expanded(
                   child: _FilterDropdown(
-                    value: _selectedStatus,
+                    value: selectedStatus,
                     hint: 'All Status',
                     items: const [
                       DropdownMenuItem(value: null, child: Text('All Status')),
@@ -60,8 +52,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       DropdownMenuItem(value: 'late', child: Text('Late')),
                     ],
                     onChanged: (v) {
-                      setState(() => _selectedStatus = v);
-                      _loadHistory();
+                      context.read<AttendanceProvider>().setStatus(v);
                     },
                   ),
                 ),
@@ -70,9 +61,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           ),
           // ─── List ────────────────────────────────────
           Expanded(
-            child: _loadingHistory
+            child: isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _history.isEmpty
+                : history.isEmpty
                     ? Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -87,11 +78,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                         ),
                       )
                     : RefreshIndicator(
-                        onRefresh: _loadHistory,
+                        onRefresh: () => context.read<AttendanceProvider>().refresh(),
                         child: ListView.builder(
                           padding: const EdgeInsets.all(16),
-                          itemCount: _history.length,
-                          itemBuilder: (_, i) => AttendanceTile(attendance: _history[i]),
+                          itemCount: history.length,
+                          itemBuilder: (_, i) => AttendanceTile(attendance: history[i]),
                         ),
                       ),
           ),

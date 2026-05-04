@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/constants.dart';
 import '../models/models.dart';
 
@@ -11,34 +14,36 @@ class ApiService {
 
   final _storage = const FlutterSecureStorage();
   String? _token;
-  String? _studentId;
+  String? _cachedStudentId;
+
+  // ─── Token Management ──────────────────────────────────────────
 
   Future<String?> get token async {
     _token ??= await _storage.read(key: AppConstants.tokenKey);
     return _token;
   }
 
-  Future<Map<String, String>> get _headers async {
-    final t = await token;
-    return {
-      'Content-Type': 'application/json',
-      if (t != null) 'Authorization': 'Bearer $t',
-    };
-  }
-
-  Future<void> saveToken(String token) async {
+  Future<void> _saveAuthData(String token, Map<String, dynamic> studentJson) async {
+    debugPrint('Saving Auth Data: Token and Student Profile...');
     _token = token;
     await _storage.write(key: AppConstants.tokenKey, value: token);
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(AppConstants.studentKey, jsonEncode(studentJson));
+    
+    if (studentJson.containsKey('_id')) {
+      _cachedStudentId = studentJson['_id'];
+      debugPrint('Student ID Cached: $_cachedStudentId');
+    }
   }
 
-  Future<void> saveStudentId(String studentId) async {
-    _studentId = studentId;
-  }
-
-  Future<void> clearToken() async {
+  Future<void> clearAuthData() async {
+    debugPrint('Clearing Auth Data...');
     _token = null;
-    _studentId = null;
+    _cachedStudentId = null;
     await _storage.delete(key: AppConstants.tokenKey);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(AppConstants.studentKey);
   }
 
   Future<bool> get isLoggedIn async {
@@ -46,123 +51,241 @@ class ApiService {
     return t != null && t.isNotEmpty;
   }
 
-  // ─── Auth ──────────────────────────────────────
-  Future<Map<String, dynamic>> login(String studentId, String password) async {
-    final response = await http.post(
-      Uri.parse('${AppConstants.baseUrl}${AppConstants.loginEndpoint}'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'studentId': studentId, 'password': password}),
-    );
+  Future<String?> _getStudentId() async {
+    if (_cachedStudentId != null) return _cachedStudentId;
 
-    final data = jsonDecode(response.body);
-    if (response.statusCode == 200 && data['token'] != null) {
-      await saveToken(data['token']);
-      if (data['student'] != null && data['student']['_id'] != null) {
-        await saveStudentId(data['student']['_id']);
+    final prefs = await SharedPreferences.getInstance();
+    final studentData = prefs.getString(AppConstants.studentKey);
+    if (studentData != null) {
+      try {
+        final student = jsonDecode(studentData);
+        _cachedStudentId = student['_id'];
+        return _cachedStudentId;
+      } catch (e) {
+        debugPrint('Error decoding cached student data: $e');
       }
-      return {'success': true, 'student': data['student']};
     }
-    return {'success': false, 'message': data['message'] ?? 'Login failed'};
+    return null;
+  }
+
+  // ─── Request Helpers ───────────────────────────────────────────
+
+  Future<Map<String, String>> _getHeaders({bool authenticated = true}) async {
+    final headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+
+    if (authenticated) {
+      final t = await token;
+      if (t != null) {
+        headers['Authorization'] = 'Bearer $t';
+      }
+    }
+    return headers;
+  }
+
+  String _buildUrl(String endpoint) {
+    final base = AppConstants.baseUrl.endsWith('/') 
+        ? AppConstants.baseUrl.substring(0, AppConstants.baseUrl.length - 1) 
+        : AppConstants.baseUrl;
+    final path = endpoint.startsWith('/') ? endpoint : '/$endpoint';
+    return '$base$path';
+  }
+
+  dynamic _handleResponse(http.Response response) {
+    debugPrint('API Response: [${response.statusCode}] ${response.request?.url}');
+    
+    if (response.body.isEmpty) {
+      if (response.statusCode >= 200 && response.statusCode < 300) return {};
+      throw Exception('Empty response with status: ${response.statusCode}');
+    }
+
+    try {
+      final dynamic data = jsonDecode(response.body);
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return data;
+      } else {
+        final message = data is Map ? data['message'] : 'Request failed with status: ${response.statusCode}';
+        debugPrint('API Error Detail: $message');
+        throw Exception(message);
+      }
+    } catch (e) {
+      debugPrint('JSON Decode Error: $e');
+      if (response.statusCode >= 400) {
+        throw Exception('Server error: ${response.statusCode}');
+      }
+      rethrow;
+    }
+  }
+
+  // ─── JWT Parsing ───────────────────────────────────────────────
+
+  Map<String, dynamic> _parseJwt(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) throw Exception('Invalid token parts');
+      final payload = parts[1];
+      final String decoded = utf8.decode(base64Url.decode(base64.normalize(payload)));
+      return jsonDecode(decoded);
+    } catch (e) {
+      debugPrint('JWT Parse Error: $e');
+      throw Exception('Failed to process authentication token');
+    }
+  }
+
+  // ─── Auth Endpoints ────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> login(String studentId, String password) async {
+    final url = _buildUrl(AppConstants.loginEndpoint);
+    debugPrint('Attempting Login: $url');
+    
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: await _getHeaders(authenticated: false),
+        body: jsonEncode({
+          'studentId': studentId,
+          'password': password,
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      debugPrint('Login RAW Response: ${response.body}');
+      final data = _handleResponse(response);
+      
+      // Handle both 'token' and 'access_token'
+      final String? tokenValue = data['token'] ?? data['access_token'];
+      if (tokenValue == null) {
+        debugPrint('Login Error: Token not found in response');
+        throw Exception('Invalid response: Token missing');
+      }
+
+      Map<String, dynamic>? studentJson = data['student'];
+      
+      // If student data is missing, extract ID from JWT and fetch profile
+      if (studentJson == null) {
+        debugPrint('Student object missing in response. Decoding JWT payload...');
+        final payload = _parseJwt(tokenValue);
+        final String? id = payload['sub'];
+        if (id == null) throw Exception('Invalid token: User ID (sub) missing');
+        
+        debugPrint('Extracted Student ID from JWT: $id. Fetching full profile...');
+        
+        // Temporarily set token for the profile request
+        _token = tokenValue;
+        
+        final student = await getProfile(id: id);
+        studentJson = student.toJson();
+      }
+
+      await _saveAuthData(tokenValue, studentJson);
+      return {'success': true, 'student': studentJson};
+      
+    } on SocketException {
+      throw Exception('Network unreachable. Please check your connection.');
+    } on http.ClientException {
+      throw Exception('Server unreachable. Please check if the backend is running.');
+    } catch (e) {
+      debugPrint('CRITICAL LOGIN ERROR: $e');
+      rethrow;
+    }
   }
 
   Future<void> logout() async {
-    await clearToken();
+    await clearAuthData();
   }
 
-  // ─── Student Profile ───────────────────────────
-  Future<Student> getProfile() async {
-    final studentId = _studentId;
-    if (studentId == null) {
-      throw Exception('Student ID not available');
-    }
+  // ─── Student Profile ──────────────────────────────────────────
+
+  Future<Student> getProfile({String? id}) async {
+    final studentId = id ?? await _getStudentId();
+    if (studentId == null) throw Exception('Authentication required');
+
+    final url = _buildUrl('${AppConstants.profileEndpoint}/$studentId');
+    debugPrint('Fetching Profile: $url');
+
     final response = await http.get(
-      Uri.parse('${AppConstants.baseUrl}${AppConstants.profileEndpoint}/$studentId'),
-      headers: await _headers,
+      Uri.parse(url),
+      headers: await _getHeaders(),
     );
-    if (response.statusCode == 200) {
-      return Student.fromJson(jsonDecode(response.body)['student'] ?? jsonDecode(response.body));
-    }
-    throw Exception('Failed to load profile');
+
+    final data = _handleResponse(response);
+    return Student.fromJson(data['student'] ?? data);
   }
 
-  // ─── Attendance ────────────────────────────────────────
+  // ─── Attendance ───────────────────────────────────────────────
+
   Future<List<Attendance>> getMyAttendance({
     String? moduleId,
     String? status,
     DateTime? fromDate,
     DateTime? toDate,
   }) async {
+    final id = await _getStudentId();
+    if (id == null) throw Exception('Authentication required');
+
     final params = <String, String>{};
     if (moduleId != null) params['moduleId'] = moduleId;
     if (status != null) params['status'] = status;
     if (fromDate != null) params['from'] = fromDate.toIso8601String();
     if (toDate != null) params['to'] = toDate.toIso8601String();
 
-    final uri = Uri.parse('${AppConstants.baseUrl}${AppConstants.attendanceEndpoint}')
+    final uri = Uri.parse(_buildUrl('${AppConstants.attendanceEndpoint}/$id'))
         .replace(queryParameters: params.isNotEmpty ? params : null);
 
-    final response = await http.get(uri, headers: await _headers);
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final list = data['attendances'] ?? data as List;
-      return (list as List).map((e) => Attendance.fromJson(e)).toList();
-    }
-    throw Exception('Failed to load attendance');
+    debugPrint('Fetching Attendance: $uri');
+
+    final response = await http.get(uri, headers: await _getHeaders());
+    final data = _handleResponse(response);
+    
+    final List list = data['attendances'] ?? (data is List ? data : []);
+    return list.map((e) => Attendance.fromJson(e)).toList();
   }
 
-  // ─── Sessions ─────────────────────────────────────────
+  // ─── Sessions ────────────────────────────────────────────────
+
   Future<List<Session>> getMySessions({String? status}) async {
     final params = <String, String>{};
     if (status != null) params['status'] = status;
 
-    final uri = Uri.parse('${AppConstants.baseUrl}${AppConstants.sessionsEndpoint}')
+    final uri = Uri.parse(_buildUrl(AppConstants.sessionsEndpoint))
         .replace(queryParameters: params.isNotEmpty ? params : null);
 
-    final response = await http.get(uri, headers: await _headers);
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final list = data['sessions'] ?? data as List;
-      return (list as List).map((e) => Session.fromJson(e)).toList();
-    }
-    throw Exception('Failed to load sessions');
+    debugPrint('Fetching Sessions: $uri');
+
+    final response = await http.get(uri, headers: await _getHeaders());
+    final data = _handleResponse(response);
+    
+    final List list = data['sessions'] ?? (data is List ? data : []);
+    return list.map((e) => Session.fromJson(e)).toList();
   }
 
   Future<Session> getSessionById(String sessionId) async {
+    final url = _buildUrl('${AppConstants.sessionByIdEndpoint}/$sessionId');
+    debugPrint('Fetching Session Detail: $url');
+
     final response = await http.get(
-      Uri.parse('${AppConstants.baseUrl}${AppConstants.sessionByIdEndpoint}/$sessionId'),
-      headers: await _headers,
+      Uri.parse(url),
+      headers: await _getHeaders(),
     );
-    if (response.statusCode == 200) {
-      return Session.fromJson(jsonDecode(response.body)['session'] ?? jsonDecode(response.body));
-    }
-    throw Exception('Failed to load session');
+
+    final data = _handleResponse(response);
+    return Session.fromJson(data['session'] ?? data);
   }
 
-  // ─── Modules ──────────────────────────────────────────
-  Future<List<Module>> getMyModules(String teacherId) async {
-    final response = await http.get(
-      Uri.parse('${AppConstants.baseUrl}${AppConstants.modulesEndpoint}/$teacherId'),
-      headers: await _headers,
-    );
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final list = data['modules'] ?? data as List;
-      return (list as List).map((e) => Module.fromJson(e)).toList();
-    }
-    throw Exception('Failed to load modules');
-  }
+  // ─── Attendance Scan ─────────────────────────────────────────
 
-  // ─── Attendance Scan ────────────────────────────────
   Future<Map<String, dynamic>> scanAttendance(String qrData) async {
+    final url = _buildUrl(AppConstants.attendanceScanEndpoint);
+    debugPrint('Submitting Attendance Scan: $url');
+
     final response = await http.post(
-      Uri.parse('${AppConstants.baseUrl}${AppConstants.attendanceScanEndpoint}'),
-      headers: await _headers,
+      Uri.parse(url),
+      headers: await _getHeaders(),
       body: jsonEncode({'qrData': qrData}),
     );
-    final data = jsonDecode(response.body);
-    if (response.statusCode == 200) {
-      return {'success': true, 'attendance': data['attendance']};
-    }
-    return {'success': false, 'message': data['message'] ?? 'Scan failed'};
+
+    final data = _handleResponse(response);
+    return {'success': true, 'attendance': data['attendance']};
   }
 }

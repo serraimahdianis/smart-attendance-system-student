@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../models/models.dart';
-import '../services/api_service.dart';
+import '../providers/sessions_provider.dart';
 import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
 import 'session_detail_screen.dart';
@@ -16,37 +17,22 @@ class SessionsScreen extends StatefulWidget {
 class _SessionsScreenState extends State<SessionsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
-  List<Session> _upcoming = [];
-  List<Session> _completed = [];
-  bool _loadingUpcoming = false;
-  bool _loadingCompleted = false;
 
   @override
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
-    _loadUpcoming();
-    _loadCompleted();
-  }
-
-  Future<void> _loadUpcoming() async {
-    setState(() => _loadingUpcoming = true);
-    try {
-      _upcoming = await ApiService().getMySessions(status: 'planned');
-    } catch (_) {}
-    setState(() => _loadingUpcoming = false);
-  }
-
-  Future<void> _loadCompleted() async {
-    setState(() => _loadingCompleted = true);
-    try {
-      _completed = await ApiService().getMySessions(status: 'closed');
-    } catch (_) {}
-    setState(() => _loadingCompleted = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final p = context.read<SessionsProvider>();
+      p.loadUpcoming();
+      p.loadCompleted();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final p = context.watch<SessionsProvider>();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Sessions'),
@@ -67,8 +53,8 @@ class _SessionsScreenState extends State<SessionsScreen>
       body: TabBarView(
         controller: _tabCtrl,
         children: [
-          _buildList(_upcoming, _loadingUpcoming, _loadUpcoming, isUpcoming: true),
-          _buildList(_completed, _loadingCompleted, _loadCompleted, isUpcoming: false),
+          _buildList(p.upcoming, p.isLoadingUpcoming, p.loadUpcoming, isUpcoming: true),
+          _buildList(p.completed, p.isLoadingCompleted, p.loadCompleted, isUpcoming: false),
         ],
       ),
     );

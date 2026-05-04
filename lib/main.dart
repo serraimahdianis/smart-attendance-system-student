@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/attendance_provider.dart';
+import 'providers/sessions_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_nav_screen.dart';
 import 'utils/constants.dart';
@@ -20,6 +21,7 @@ class SmartAttendanceApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => AttendanceProvider()),
+        ChangeNotifierProvider(create: (_) => SessionsProvider()),
       ],
       child: MaterialApp(
         title: 'Smart Attendance',

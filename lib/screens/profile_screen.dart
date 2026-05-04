@@ -18,9 +18,6 @@ class ProfileScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Profile'),
         automaticallyImplyLeading: false,
-        actions: [
-          IconButton(icon: const Icon(Icons.settings_outlined), onPressed: () {}),
-        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -42,33 +39,17 @@ class ProfileScreen extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 44,
-                        backgroundColor: AppColors.primary.withOpacity(0.1),
-                        child: Text(
-                          student?.fullName.substring(0, 1).toUpperCase() ?? 'S',
-                          style: GoogleFonts.poppins(
-                            fontSize: 36,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primary,
-                          ),
-                        ),
+                  CircleAvatar(
+                    radius: 44,
+                    backgroundColor: AppColors.primary.withOpacity(0.1),
+                    child: Text(
+                      student?.fullName.substring(0, 1).toUpperCase() ?? 'S',
+                      style: GoogleFonts.poppins(
+                        fontSize: 36,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
                       ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(
-                            color: AppColors.primary,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.edit, color: Colors.white, size: 14),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                   const SizedBox(height: 14),
                   Text(
@@ -144,20 +125,32 @@ class ProfileScreen extends StatelessWidget {
                     icon: Icons.language,
                     label: 'Language',
                     trailing: const Text('English'),
-                    onTap: () {},
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Not implemented yet')),
+                      );
+                    },
                   ),
                   _divider(),
                   _settingsTile(
                     icon: Icons.palette_outlined,
                     label: 'Theme',
                     trailing: const Text('Light'),
-                    onTap: () {},
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Not implemented yet')),
+                      );
+                    },
                   ),
                   _divider(),
                   _settingsTile(
                     icon: Icons.notifications_outlined,
                     label: 'Notifications',
-                    onTap: () {},
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Not implemented yet')),
+                      );
+                    },
                   ),
                 ],
               ),
